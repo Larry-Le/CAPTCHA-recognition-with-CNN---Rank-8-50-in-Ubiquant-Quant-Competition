@@ -1,0 +1,125 @@
+import tensorflow as tf
+import matplotlib.pyplot as plt
+import matplotlib.image as matimg
+import pandas as pd
+import numpy as np
+from PIL import Image
+import imageio
+import cv2
+import os
+
+
+# 返回目录下的所有目录
+def load_dir(current_dir):
+    res = []
+    file_list = os.listdir(current_dir)
+    for f in file_list:
+        current_path = current_dir + '/' + f
+        if os.path.isdir(current_path):
+            res.append(current_path)
+        else:
+            pass
+    return res
+
+
+# 返回目录下所有以"cut"开头的图片
+def load_pictures_from_dir(dir_list):
+    res = {}
+    for dir in dir_list:
+        picture_number = 0
+        file_list = os.listdir(dir)
+        for file in file_list:
+            if file[: 3] == 'cut':
+                picture_number += 1
+            else:
+                pass
+#        picture_number = len(os.listdir(dir))
+        res[dir] = ["cut"+str(i+1)+".png" for i in range(picture_number)]
+    return res
+
+
+# model.predict()返回的是一个数组，这里我们得到最终的结果（最大值所对应的索引）
+def get_model_output(output_list):
+    max_number = max(output_list[0])
+    for i, num in enumerate(output_list[0]):
+        if num == max_number:
+            return i
+        else: pass
+    return
+
+
+
+# 对于高度不为160的图片的处理方法
+def change_pictures_1(pictures_dic):
+    for dir_path in pictures_dic:
+        imgs = pictures_dic[dir_path]
+        for img_path in imgs:
+            try:
+                img = matimg.imread(dir_path + '/' + img_path)
+
+                img = np.array(img)
+                # img = cv2.imread(dir_path+'/'+img_path,0)
+
+                height, width = img.shape
+            except:
+                continue
+            print(img.shape, dir_path, img_path)
+            if height == width:
+                pass
+            elif height > width:
+                img_new = np.array([1] * (height ** 2)).reshape(height, height)
+                if width % 2 == 0:
+                    img_new[:, int(height / 2) - int(width / 2): int(height / 2) + int(width / 2)] = img
+                elif width % 2 == 1 and width > 1:
+                    img_new[:, int(height / 2) - int((width + 1) / 2): int(height / 2) - 1 + int((width + 1) / 2)] = img
+                else:
+                    img_new[:, int(height / 2): int(height / 2) + 1] = img
+
+            else:
+                img_new = np.array([1] * (width ** 2)).reshape(width, width)
+                if height % 2 == 0:
+                    img_new[int(width / 2) - int(height / 2): int(width / 2) + int(height / 2), :] = img
+                elif height % 2 == 1 and height > 1:
+                    img_new[int(width / 2) - int((height + 1) / 2): int(width / 2) - 1 + int((height + 1) / 2), :] = img
+                else:
+                    img_new[int(width / 2): int(width / 2) + 1, :] = img
+            imageio.imwrite(dir_path + '/new_' + img_path, img_new)
+#           img2 = Image.open(dir_path + '/new_' + img_path)
+            img2 = cv2.imread(dir_path + '/new_' + img_path,0)
+            out = cv2.resize(img2, (72, 72))
+            print(type(out))
+            out = cv2.bitwise_not(out)
+            imageio.imwrite(dir_path + '/new_' + img_path, out)
+    print("successfully changed pictures")
+    return
+
+# 对于一个目录中的每一个图片进行预测，然后把结果拼接在一起转换成csv文件
+def run_model(pictures_dic, model):
+    for dir_path in pictures_dic:
+        imgs = pictures_dic[dir_path]
+        model_out = []
+        for img_path in imgs:
+            try:
+                img = cv2.imread(dir_path + '/new_' + img_path)
+
+                img = np.array([img[:, :, 0]])
+                img = img / 255 - 0.5
+                img = np.expand_dims(img, axis=-1)
+                res = model.predict(img)
+                model_out.append(get_model_output(res))
+            except:
+                continue
+        model_out_df = pd.DataFrame([''.join([str(x) for x in model_out])])
+        model_out_df.to_csv(dir_path + '/' + 'model_out.csv')
+    print("run model successful")
+    pass
+
+
+if __name__ == "__main__":
+    # 加载保存的.h5模型
+    data_path = 'data_ubiquant/captcha_img_data/'
+    model = tf.keras.models.load_model("model_save/model_type_1_0.h5")
+    dir_list = load_dir(data_path+"Type_1_dealt")
+    pictures_dic = load_pictures_from_dir(dir_list)
+    change_pictures_1(pictures_dic)
+    run_model(pictures_dic, model)
